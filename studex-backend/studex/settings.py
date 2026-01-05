@@ -32,10 +32,15 @@ except Exception as e:
     print(f"Failed to initialize Firebase Admin: {e}")
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-mn%n^!5ko4!dh9jk#(ln*au_#z_$8r+p!$7@ge6o=fr_kw*k5%')
+# SECRET_KEY is now REQUIRED - no default value for security
+try:
+    SECRET_KEY = config('SECRET_KEY')
+except:
+    raise ValueError("SECRET_KEY environment variable must be set. Add it to your .env file.")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)
+# DEBUG defaults to False for security
+DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,.vercel.app,.railway.app').split(',')
 
