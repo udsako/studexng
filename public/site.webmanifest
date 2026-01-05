@@ -1,0 +1,25 @@
+{
+  "name": "StudEx - Campus Marketplace",
+  "short_name": "StudEx",
+  "description": "Nigeria's #1 campus marketplace for students. Book lashes, nails, laundry, and food from verified vendors.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFF8F0",
+  "theme_color": "#7C3AED",
+  "icons": [
+    {
+      "src": "/images/logo-1.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/logo-1.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["lifestyle", "marketplace", "shopping"],
+  "orientation": "portrait-primary"
+}

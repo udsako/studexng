@@ -1,0 +1,96 @@
+/* src/app/globals.css — UPDATED VERSION */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==================================================================
+   BASE + FULL HEIGHT SETUP
+   ================================================================== */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --primary: 262.1 83.3% 57.8%;
+    --accent: 174.7 100% 29%;
+    --border: 214.3 31.8% 91.4%;
+    --muted: 210 40% 86.1%;
+  }
+
+  html, body, #__next {
+    @apply h-full min-h-screen;
+  }
+
+  body {
+    @apply bg-[hsl(var(--background))] text-[hsl(var(--foreground))] antialiased flex flex-col;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ==================================================================
+   COMPONENTS
+   ================================================================== */
+@layer components {
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+}
+
+/* ==================================================================
+   MOBILE PERFECTION
+   ================================================================== */
+@layer utilities {
+  /* Mobile font scaling */
+  @media (max-width: 640px) {
+    html { font-size: 14.5px; }
+  }
+  @media (max-width: 380px) {
+    html { font-size: 13.5px; }
+  }
+
+  /* Mobile spacing tweaks */
+  @media (max-width: 640px) {
+    .px-8 { @apply px-6; }
+    .px-6 { @apply px-4; }
+    .px-5 { @apply px-3; }
+
+    .py-8 { @apply py-6; }
+    .py-6 { @apply py-5; }
+    .pt-8 { @apply pt-6; }
+
+    .gap-5 { @apply gap-4; }
+    .space-y-10 > * + * { margin-top: 2.5rem !important; }
+
+    .text-5xl { @apply text-4xl; }
+    .text-4xl { @apply text-3xl; }
+    .text-3xl { @apply text-2xl; }
+    .text-2xl { @apply text-xl; }
+
+    .w-10, .h-10 { @apply w-8 h-8; }
+    .w-16, .h-16 { @apply w-12 h-12; }
+
+    .p-8 { @apply p-6; }
+    .p-6 { @apply p-5; }
+    .p-5 { @apply p-4; }
+    .rounded-3xl { @apply rounded-2xl; }
+
+    .grid-cols-4 { @apply grid-cols-3; }
+    .grid-cols-3 { @apply grid-cols-2; }
+    .gap-4 { @apply gap-3; }
+    .gap-3 { @apply gap-2; }
+
+    .w-24.h-24 { @apply w-20 h-20; }
+    textarea.h-32 { @apply h-28; }
+  }
+
+  /* MAIN CONTENT: Give it space so it never hides under the nav */
+  @media (max-width: 640px) {
+    main {
+      padding-bottom: 6rem !important;
+    }
+  }
+}
