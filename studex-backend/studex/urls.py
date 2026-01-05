@@ -1,0 +1,19 @@
+# studex/urls.py
+from django.contrib import admin
+from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static  # ← NEW: Import for media serving
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('api/auth/', include('accounts.urls')),      # Auth endpoints (login, register, profile)
+    path('api/admin/', include('accounts.admin_urls')),  # Admin-only endpoints (dashboard, user management)
+    path('api/services/', include('services.urls')),  # Services endpoints (categories, listings)
+    path('api/orders/', include('orders.urls')),      # Orders endpoints
+    path('api/wallet/', include('wallet.urls')),      # Wallet endpoints
+    path('api/chat/', include('chat.urls')),          # Chat/messaging endpoints
+]
+
+# ← NEW: Serve media files during development (DEBUG = True)
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
