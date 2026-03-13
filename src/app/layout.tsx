@@ -7,8 +7,8 @@ import BottomNav from "@/components/layout/BottomNav";
 import CookieConsent from "@/components/CookieConsent";
 import { Toaster } from "@/components/ui/sonner";
 import { usePathname } from "next/navigation";
-import { FirebaseAuthProvider } from "@/lib/firebaseAuth"; // ← Our new provider
-import { ThemeProvider } from "@/components/ThemeProvider"; // ← Theme provider for dark mode
+import { FirebaseAuthProvider } from "@/lib/firebaseAuth";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import { useEffect, useState } from "react";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -21,17 +21,16 @@ export default function RootLayout({
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
 
-  // Only for preventing SSR flash (optional but nice)
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  // ← Removed pathname?.startsWith("/vendor") so BottomNav shows on vendor dashboard
   const hideNav =
     pathname === "/" ||
     pathname === "/auth" ||
     pathname?.startsWith("/admin");
 
-  // Show nothing or a blank screen until client is mounted (prevents hydration mismatch)
   if (!mounted) {
     return (
       <html lang="en" suppressHydrationWarning>
@@ -45,29 +44,24 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className="bg-[#FFF8F0] dark:bg-gray-950">
       <head>
-        {/* CRITICAL SEO FIX: Base meta tags */}
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta name="theme-color" content="#7C3AED" />
         <meta name="description" content="Nigeria's #1 campus marketplace for students. Book lashes, nails, laundry, and food from verified vendors at Pan-Atlantic University. Fast, safe, and affordable." />
         <meta name="keywords" content="campus marketplace, student services, PAU marketplace, Pan-Atlantic University, student vendors, lashes, nails, laundry, food delivery" />
 
-        {/* Open Graph */}
         <meta property="og:site_name" content="StudEx" />
         <meta property="og:type" content="website" />
         <meta property="og:locale" content="en_NG" />
 
-        {/* Twitter */}
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:site" content="@studexng" />
 
-        {/* Mobile */}
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="StudEx" />
 
-        {/* Favicons */}
         <link rel="icon" type="image/x-icon" href="/favicon.ico" />
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />

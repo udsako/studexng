@@ -3,9 +3,16 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
+from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
+from django.core.mail import send_mail
+from django.conf import settings
 from firebase_admin import auth as firebase_auth
 from .serializers import (
     UserRegistrationSerializer,
@@ -139,7 +146,6 @@ def update_user_profile(request):
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def logout_user(request):
@@ -233,6 +239,21 @@ def firebase_login(request):
             'error': f'Firebase authentication failed: {str(e)}'
         }, status=status.HTTP_401_UNAUTHORIZED)
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def me(request):
+    """Returns fresh user data — called on account page load to detect vendor approval."""
+    user = request.user
+    return Response({
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "phone": getattr(user, "phone", ""),
+        "user_type": user.user_type,
+        "is_verified_vendor": getattr(user, "is_verified_vendor", False),
+        "business_name": getattr(user, "business_name", ""),
+        "hostel": getattr(user, "hostel", ""),
+    })
 
 # Seller Application API
 class SellerApplicationViewSet(viewsets.ModelViewSet):
@@ -258,4 +279,78 @@ class SellerApplicationViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Save application with current user"""
-        serializer.save(user=self.request.user) 
+        serializer.save(user=self.request.user)
+
+
+# ================= FORGOT PASSWORD =================
+
+class ForgotPasswordView(APIView):
+    """
+    POST /api/auth/forgot-password/
+    Sends a password reset link to the user's email.
+    Body: { "email": "user@example.com" }
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+
+        if not email:
+            return Response({"detail": "Email is required"}, status=400)
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # Don't reveal whether email exists (security best practice)
+            return Response({"detail": "If this email exists, a reset link has been sent."})
+
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        reset_url = f"{settings.FRONTEND_BASE_URL}/reset-password?uid={uid}&token={token}"
+
+        send_mail(
+            subject="StudEx — Reset Your Password",
+            message=f"Hi {user.username},\n\nClick the link below to reset your password:\n\n{reset_url}\n\nThis link expires in 24 hours.\n\nIf you didn't request this, ignore this email.",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+            fail_silently=False,
+        )
+
+        return Response({
+        "detail": "Reset link generated successfully.",
+        "reset_url": reset_url  # send it back to frontend
+    })
+
+    # ================= RESET PASSWORD =================
+
+class ResetPasswordView(APIView):
+    """
+    POST /api/auth/reset-password/
+    Body: { uid, token, password }
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        uid = request.data.get("uid")
+        token = request.data.get("token")
+        password = request.data.get("password")
+
+        if not uid or not token or not password:
+            return Response({"detail": "Missing fields"}, status=400)
+
+        from django.utils.http import urlsafe_base64_decode
+
+        try:
+            user_id = urlsafe_base64_decode(uid).decode()
+            user = User.objects.get(pk=user_id)
+        except Exception:
+            return Response({"detail": "Invalid link"}, status=400)
+
+        if not default_token_generator.check_token(user, token):
+            return Response({"detail": "Token expired or invalid"}, status=400)
+
+        user.set_password(password)
+        user.save()
+
+        return Response({"detail": "Password reset successful"})
+    

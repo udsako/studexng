@@ -91,20 +91,16 @@ class ListingAdmin(admin.ModelAdmin):
     def vendor_status(self, obj):
         """Show vendor verification status"""
         if obj.vendor.is_verified_vendor:
-            return format_html(
-                '<span style="color: green;">✓ Verified</span>'
-            )
+            return format_html('<span style="color: green;">✓ Verified</span>')
         else:
-            return format_html(
-                '<span style="color: red;">✗ Unverified</span>'
-            )
+            return format_html('<span style="color: red;">✗ Unverified</span>')
     vendor_status.short_description = 'Vendor Status'
 
     def price_display(self, obj):
         """Display price with currency formatting"""
         return format_html(
-            '<span style="font-weight: bold;">₦{:,.2f}</span>',
-            float(obj.price)
+            '<span style="font-weight: bold;">₦{}</span>',
+            '{:,.2f}'.format(float(obj.price))
         )
     price_display.short_description = 'Price'
 
@@ -142,7 +138,7 @@ class ListingAdmin(admin.ModelAdmin):
             listing=obj,
             status='completed'
         ).aggregate(total=Sum('amount'))['total'] or 0
-        return f"₦{revenue:,.2f}"
+        return '₦{:,.2f}'.format(float(revenue))
     get_total_revenue.short_description = 'Total Revenue'
 
     def mark_available(self, request, queryset):
@@ -218,8 +214,8 @@ class TransactionAdmin(admin.ModelAdmin):
     def amount_display(self, obj):
         """Display amount with currency formatting"""
         return format_html(
-            '<span style="font-weight: bold;">₦{:,.2f}</span>',
-            float(obj.amount)
+            '<span style="font-weight: bold;">₦{}</span>',
+            '{:,.2f}'.format(float(obj.amount))
         )
     amount_display.short_description = 'Amount'
 

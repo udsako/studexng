@@ -120,7 +120,18 @@ transition={{ delay: i * 0.1 }}
 className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-lg border border-purple-100 dark:border-gray-700 flex gap-4"
 >
 <div className="relative w-24 h-24 rounded-2xl overflow-hidden ring-2 ring-purple-100 dark:ring-purple-900/50">
-<Image src={`/images/${item.img}`} alt={item.title} fill className="object-cover" />
+<Image
+  src={
+    item.img?.startsWith("http")
+      ? item.img
+      : item.img?.startsWith("/")
+      ? item.img
+      : `/images/${item.img}`   // 🔥 auto-fix broken paths
+  }
+  alt={item.title}
+  fill
+  className="object-cover"
+/>
 </div>
 
 <div className="flex-1">

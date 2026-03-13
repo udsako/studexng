@@ -18,6 +18,24 @@ type CartStore = {
   clearCart: () => void;
 };
 
+
+/* =========================
+   🔥 AUTO IMAGE FIXER
+   ========================= */
+const fixImagePath = (img: string) => {
+  if (!img) return "/images/placeholder.jpg";
+
+  // already valid (http or https)
+  if (img.startsWith("http")) return img;
+
+  // already has leading slash
+  if (img.startsWith("/")) return img;
+
+  // auto-fix broken paths like "deal-food-1.jpg"
+  return `/images/${img}`;
+};
+
+
 export const useCart = create<CartStore>()(
   persist(
     (set) => ({
