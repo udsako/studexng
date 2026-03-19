@@ -35,7 +35,8 @@ class ListingSerializer(serializers.ModelSerializer):
         model = Listing
         fields = [
             'id', 'title', 'description', 'price', 'image',
-            'is_available', 'category', 'vendor', 'vendor_is_verified',
+            'is_available', 'listing_type', 'track_inventory', 'stock_quantity',
+            'category', 'vendor', 'vendor_is_verified',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['vendor', 'vendor_is_verified', 'created_at', 'updated_at']
@@ -67,8 +68,6 @@ class ListingSerializer(serializers.ModelSerializer):
         if not request:
             return data  # nested/read-only usage — skip write validation
         user = request.user
-        if user.user_type != 'vendor':
-            raise serializers.ValidationError("Only vendors can create listings.")
         if not user.is_verified_vendor:
             raise serializers.ValidationError("You must be a verified vendor to post listings.")
         return data

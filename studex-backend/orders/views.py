@@ -25,8 +25,8 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.user_type == 'vendor':
-            return self.queryset.filter(listing__vendor=user).order_by('-created_at')
+        # Always return orders where user is the buyer.
+        # Vendors see their sales via the vendor dashboard earnings tab, not here.
         return self.queryset.filter(buyer=user).order_by('-created_at')
 
     def perform_create(self, serializer):

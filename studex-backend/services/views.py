@@ -70,8 +70,24 @@ class ListingViewSet(viewsets.ModelViewSet):
 
         return queryset.filter(is_available=True)
 
+    def update(self, request, *args, **kwargs):
+        # Vendors cannot change is_available — only admin can via Django Admin
+        if 'is_available' in request.data and not request.user.is_staff:
+            request.data._mutable = True if hasattr(request.data, '_mutable') else None
+            try:
+                request.data.pop('is_available')
+            except Exception:
+                pass
+        return super().update(request, *args, **kwargs)
+
     def perform_create(self, serializer):
-        serializer.save(vendor=self.request.user)
+        listing = serializer.save(vendor=self.request.user, is_available=False)
+        # Notify admin that a new listing needs review and approval
+        try:
+            from studex.notifications import notify_admin_new_listing
+            notify_admin_new_listing(listing)
+        except Exception:
+            pass
 
 
 class TransactionViewSet(viewsets.ReadOnlyModelViewSet):

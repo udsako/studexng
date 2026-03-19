@@ -36,8 +36,8 @@ export default function ProfilePage() {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
+  const [bonusGranted, setBonusGranted] = useState(false);
 
-  // Stats fetched from backend
   const [stats, setStats] = useState({ sold: 0, bought: 0, wishlist: 0 });
 
   const [profile, setProfile] = useState<Profile>({
@@ -53,15 +53,13 @@ export default function ProfilePage() {
     gender: "",
   });
 
-  // Storage key scoped to this user so data never leaks between accounts
   const storageKey = user?.id ? `userProfileExtras_${user.id}` : null;
+  const bonusKey = user?.id ? `profileBonusGranted_${user.id}` : null;
 
   useEffect(() => {
     if (!user) return;
-
     const extras = storageKey ? localStorage.getItem(storageKey) : null;
     const parsed = extras ? JSON.parse(extras) : {};
-
     setProfile({
       name: user.username || parsed.name || "Student",
       email: user.email || "",
@@ -74,11 +72,12 @@ export default function ProfilePage() {
       dob: parsed.dob || "",
       gender: parsed.gender || "",
     });
-  }, [user, storageKey]);
+    // Check if bonus was already granted
+    if (bonusKey && localStorage.getItem(bonusKey) === "true") {
+      setBonusGranted(true);
+    }
+  }, [user, storageKey, bonusKey]);
 
-  // Fetch stats using both endpoints:
-  // - /api/orders/orders/  → completed payment orders (for Bought + Sold)
-  // - /api/orders/bookings/ → fallback / additional booking data
   useEffect(() => {
     if (!user) return;
     const loadStats = async () => {
@@ -87,37 +86,27 @@ export default function ProfilePage() {
         if (!res.ok) return;
         const data = await res.json();
         const orders = Array.isArray(data) ? data : (data.results || []);
-
-        // "Bought" = orders where I am the buyer.
-        // The buyer field on the order is the user who paid.
-        // Both vendors AND regular students can buy from others.
         const bought = orders.filter(
           (o: any) =>
             o.buyer === user.username ||
             o.buyer?.username === user.username ||
             o.buyer_username === user.username
         ).length;
-
-        // "Sold" = any order on MY listing that was paid for (exclude only pending/cancelled).
-        // Covers: paid, seller_completed, completed, disputed — all mean the buyer paid.
         const sold = orders.filter(
           (o: any) =>
             (o.listing?.vendor?.username === user.username ||
              o.listing?.vendor === user.username) &&
             !["pending", "cancelled"].includes(o.status)
         ).length;
-
         setStats(prev => ({ ...prev, sold, bought }));
       } catch {}
     };
     loadStats();
   }, [user]);
 
-  // Sync wishlist count from local store whenever it changes
   useEffect(() => {
     setStats(prev => ({ ...prev, wishlist: wishlist.length }));
   }, [wishlist]);
-
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -133,22 +122,6 @@ export default function ProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  const saveProfile = () => {
-    if (!storageKey) return;
-    setSaving(true);
-    const { email, school, name, ...rest } = profile;
-    localStorage.setItem(storageKey, JSON.stringify(rest));
-    setTimeout(() => {
-      setSaving(false);
-      setIsEditing(false);
-      setSavedMsg("Profile saved!");
-      setTimeout(() => setSavedMsg(""), 2500);
-    }, 600);
-  };
-
-  // ── Completion now tracks 6 FILLABLE fields (no avatar — that's optional)
-  // Fields: name, phone, dob, gender, department, level
-  // User knows exactly what to fill from the form below.
   const completionFields = [
     { key: "name",       label: "Full Name" },
     { key: "phone",      label: "Phone Number" },
@@ -160,6 +133,46 @@ export default function ProfilePage() {
   const completedCount = completionFields.filter(f => !!profile[f.key as keyof Profile]).length;
   const completionPct = Math.round((completedCount / completionFields.length) * 100);
   const missingFields = completionFields.filter(f => !profile[f.key as keyof Profile]).map(f => f.label);
+
+  const grantProfileBonus = async () => {
+    if (!bonusKey || bonusGranted) return;
+    try {
+      // Add ₦1,000 loyalty credits via the loyalty endpoint
+      await fetchWithAuth(`${API_URL}/api/loyalty/earn/`, {
+        method: "POST",
+        body: JSON.stringify({
+          amount: 1000,
+          description: "Profile completion bonus — ₦1,000 loyalty credits",
+        }),
+      });
+      localStorage.setItem(bonusKey, "true");
+      setBonusGranted(true);
+    } catch {
+      // If endpoint fails, still mark locally so we don't retry forever
+      localStorage.setItem(bonusKey, "true");
+      setBonusGranted(true);
+    }
+  };
+
+  const saveProfile = async () => {
+    if (!storageKey) return;
+    setSaving(true);
+    const { email, school, name, ...rest } = profile;
+    localStorage.setItem(storageKey, JSON.stringify(rest));
+
+    // Check if profile just became 100% complete and bonus not yet granted
+    const nowComplete = completionFields.every(f => !!profile[f.key as keyof Profile]);
+    if (nowComplete && !bonusGranted) {
+      await grantProfileBonus();
+    }
+
+    setTimeout(() => {
+      setSaving(false);
+      setIsEditing(false);
+      setSavedMsg(nowComplete && !bonusGranted ? "Profile complete! ₦1,000 added to your Loyalty Rewards 🎉" : "Profile saved!");
+      setTimeout(() => setSavedMsg(""), 4000);
+    }, 600);
+  };
 
   const fields: {
     label: string;
@@ -181,7 +194,6 @@ export default function ProfilePage() {
 
   return (
     <>
-      {/* TOP BAR */}
       <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         className="sticky top-0 bg-white dark:bg-gray-900 backdrop-blur-xl z-40 border-b border-gray-200 dark:border-gray-800 shadow-sm">
         <div className="flex items-center justify-between p-4">
@@ -202,14 +214,16 @@ export default function ProfilePage() {
           </motion.div>
         )}
 
-        {/* COMPLETION BANNER — shows what's missing so user knows exactly what to fill */}
-        {completionPct < 100 && (
+        {/* COMPLETION BANNER */}
+        {completionPct < 100 && !bonusGranted && (
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
             className="bg-gradient-to-r from-purple-600 to-teal-500 text-white rounded-2xl p-5 shadow-lg">
             <div className="flex justify-between items-center">
               <div>
-                <h3 className="text-lg font-black flex items-center gap-2"><Gift className="w-5 h-5" /> Complete Profile!</h3>
-                <p className="text-sm opacity-90 mt-0.5">Unlock ₦1,000 bonus + VIP delivery</p>
+                <h3 className="text-lg font-black flex items-center gap-2">
+                  <Gift className="w-5 h-5" /> Complete Profile!
+                </h3>
+                <p className="text-sm opacity-90 mt-0.5">Earn ₦1,000 in Loyalty Rewards</p>
               </div>
               <p className="text-4xl font-black">{completionPct}%</p>
             </div>
@@ -217,12 +231,23 @@ export default function ProfilePage() {
               <motion.div initial={{ width: 0 }} animate={{ width: `${completionPct}%` }} transition={{ duration: 0.8 }}
                 className="h-full bg-white rounded-full" />
             </div>
-            {/* ← Tell user exactly what's missing */}
             {missingFields.length > 0 && (
               <p className="text-xs text-white/80 mt-2">
                 Missing: {missingFields.join(" • ")}
               </p>
             )}
+          </motion.div>
+        )}
+
+        {/* Show when bonus already claimed */}
+        {bonusGranted && completionPct === 100 && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+            className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl p-4 flex items-center gap-3">
+            <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0" />
+            <div>
+              <p className="font-bold text-green-800 dark:text-green-300 text-sm">Profile Complete!</p>
+              <p className="text-xs text-green-700 dark:text-green-400">₦1,000 bonus added to your Loyalty Rewards</p>
+            </div>
           </motion.div>
         )}
 
@@ -336,7 +361,7 @@ export default function ProfilePage() {
           ))}
         </div>
 
-        {/* STATS — real numbers from backend, with visible text color on all backgrounds */}
+        {/* STATS */}
         <div className="grid grid-cols-3 gap-3">
           {[
             { icon: Store,       label: "Sold",     value: stats.sold,     from: "from-purple-50", to: "to-indigo-50",  iconColor: "text-purple-600", numColor: "text-purple-700" },
@@ -346,7 +371,6 @@ export default function ProfilePage() {
             <motion.div key={label} whileHover={{ y: -3 }}
               className={`bg-gradient-to-br ${from} ${to} rounded-2xl p-4 text-center shadow-sm border border-white`}>
               <Icon className={`w-7 h-7 ${iconColor} mx-auto mb-1`} />
-              {/* ← numColor is a dark shade of the card's own colour — readable on any device */}
               <p className={`text-xl font-black ${numColor}`}>{value}</p>
               <p className="text-xs text-gray-600 font-medium">{label}</p>
             </motion.div>

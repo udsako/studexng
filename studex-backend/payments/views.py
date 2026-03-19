@@ -192,6 +192,12 @@ def verify_payment(request):
 
         if order_type == "service" and listing_id:
             listing = Listing.objects.get(id=listing_id)
+            qty = int(request.data.get("quantity", 1))
+            if listing.track_inventory:
+                if listing.stock_quantity <= 0:
+                    return Response({"error": f'"{listing.title}" is out of stock.'}, status=400)
+                if listing.stock_quantity < qty:
+                    return Response({"error": f'Only {listing.stock_quantity} of "{listing.title}" available. Stock limit exceeded.'}, status=400)
             order = Order.objects.create(
                 buyer=request.user,
                 listing=listing,
@@ -200,6 +206,11 @@ def verify_payment(request):
                 status="paid",
             )
             order_id = order.id
+            # Reduce inventory stock if tracked
+            try:
+                listing.reduce_stock(1)
+            except Exception as e:
+                logger.warning(f"reduce_stock failed: {e}")
             # Mark the booking as paid so Pay Now button disappears
             try:
                 from orders.models import Booking
@@ -214,6 +225,13 @@ def verify_payment(request):
         elif order_type == "product" and items:
             for i, item_data in enumerate(items):
                 listing = Listing.objects.get(id=item_data["listing_id"])
+                qty = item_data.get("quantity", 1)
+                # Block if quantity exceeds stock
+                if listing.track_inventory:
+                    if listing.stock_quantity <= 0:
+                        return Response({"error": f'"{listing.title}" is out of stock.'}, status=400)
+                    if listing.stock_quantity < qty:
+                        return Response({"error": f'Only {listing.stock_quantity} of "{listing.title}" available. You requested {qty}. Stock limit exceeded.'}, status=400)
                 order = Order.objects.create(
                     buyer=request.user,
                     listing=listing,
@@ -221,6 +239,11 @@ def verify_payment(request):
                     reference=f"{reference}-{item_data['listing_id']}-{i}",
                     status="paid",
                 )
+                # Reduce inventory stock if tracked
+                try:
+                    listing.reduce_stock(item_data.get("quantity", 1))
+                except Exception as e:
+                    logger.warning(f"reduce_stock failed: {e}")
                 if order_id is None:
                     order_id = order.id
 

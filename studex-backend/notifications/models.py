@@ -1,8 +1,6 @@
 # notifications/models.py
 from django.db import models
-from django.contrib.auth import get_user_model
-
-User = get_user_model()
+from django.conf import settings
 
 
 class Notification(models.Model):
@@ -13,24 +11,18 @@ class Notification(models.Model):
         ('vendor_revoked', 'Vendor Account Deactivated'),
     )
 
-    # None = admin-only notification (no specific user target)
     recipient = models.ForeignKey(
-        User, on_delete=models.CASCADE,
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
         related_name='notifications',
         null=True, blank=True,
-        help_text="Leave blank for admin-only notifications"
     )
-    is_admin_notification = models.BooleanField(
-        default=False,
-        help_text="If True, shown in Django Admin panel only"
-    )
+    is_admin_notification = models.BooleanField(default=False)
     notification_type = models.CharField(max_length=30, choices=TYPE_CHOICES)
     title = models.CharField(max_length=200)
     message = models.TextField()
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
-
-    # Optional link to the relevant object
     action_url = models.CharField(max_length=500, blank=True, null=True)
 
     def __str__(self):

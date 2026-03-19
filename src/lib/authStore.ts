@@ -46,14 +46,25 @@ export const useAuth = create<AuthState>()(
 
       login: (userData, accessToken, refreshToken) => {
         set({ user: userData, isLoggedIn: true, accessToken, refreshToken, isAuthReady: true });
+        // Load this user's cart from localStorage
+        try {
+          const { useCart } = require("@/lib/cartStore");
+          useCart.getState().loadCartForUser(userData.id);
+        } catch {}
       },
 
       logout: () => {
         try {
-          // Clear user-specific wishlist so it doesn't bleed to next user
           const userId = useAuth.getState().user?.id;
-          if (userId) localStorage.removeItem(`studex-wishlist-${userId}`);
+          if (userId) {
+            localStorage.removeItem(`studex-wishlist-${userId}`);
+          }
           localStorage.removeItem("auth-storage");
+          // Clear cart state on logout
+          try {
+            const { useCart } = require("@/lib/cartStore");
+            useCart.getState().loadCartForUser(null);
+          } catch {}
         } catch {}
         set({ user: null, isLoggedIn: false, accessToken: null, refreshToken: null, isAuthReady: true });
       },

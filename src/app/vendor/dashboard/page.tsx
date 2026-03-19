@@ -32,13 +32,14 @@ export default function VendorDashboard() {
         const list = Array.isArray(d) ? d : (d.results || []);
         setMsgBadge(list.reduce((s: number, c: any) => s + (c.unread_count || 0), 0));
       }).catch(() => {});
-    // Fetch pending bookings count
+    // Fetch pending bookings count — only where this user is the vendor
     fetchWithAuth(`${API_URL}/api/orders/bookings/`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (!d) return;
         const list = Array.isArray(d) ? d : (d.results || []);
-        setBookingBadge(list.filter((b: any) => b.status === "pending").length);
+        const vendorBookings = list.filter((b: any) => b.vendor_username === user?.username);
+        setBookingBadge(vendorBookings.filter((b: any) => b.status === "pending").length);
       }).catch(() => {});
   }, [user]);
 
@@ -296,6 +297,7 @@ function MessagesTab() {
 
 /* ─── BOOKINGS TAB ───────────────────────────────────────────── */
 function BookingsTab() {
+  const { user } = useAuth();
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"pending" | "confirmed" | "all">("pending");
@@ -307,7 +309,10 @@ function BookingsTab() {
     try {
       const res = await fetchWithAuth(`${API_URL}/api/orders/bookings/`);
       const data = await res.json();
-      setBookings(Array.isArray(data) ? data : (data.results || []));
+      const list = Array.isArray(data) ? data : (data.results || []);
+      // Only show bookings made TO this vendor — not bookings they made as a buyer
+      const vendorOnly = list.filter((b: any) => b.vendor_username === user?.username);
+      setBookings(vendorOnly);
     } catch {} finally { setLoading(false); }
   };
 
@@ -503,7 +508,7 @@ function ListingsTab() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [categories, setCategories] = useState<any[]>([]);
-  const [form, setForm] = useState({ title: "", description: "", price: "", category: "", image: null as File | null });
+  const [form, setForm] = useState({ title: "", description: "", price: "", category: "", listing_type: "service", track_inventory: false, stock_quantity: 0, image: null as File | null });
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -527,11 +532,11 @@ function ListingsTab() {
 
   const openEdit = (listing: any) => {
     setEditing(listing);
-    setForm({ title: listing.title, description: listing.description, price: listing.price.toString(), category: listing.category, image: null });
+    setForm({ title: listing.title, description: listing.description, price: listing.price.toString(), category: listing.category, listing_type: listing.listing_type || "service", track_inventory: listing.track_inventory || false, stock_quantity: listing.stock_quantity || 0, image: null });
     setShowForm(true);
   };
 
-  const resetForm = () => { setForm({ title: "", description: "", price: "", category: "", image: null }); setEditing(null); setShowForm(false); };
+  const resetForm = () => { setForm({ title: "", description: "", price: "", category: "", listing_type: "service", track_inventory: false, stock_quantity: 0, image: null }); setEditing(null); setShowForm(false); };
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 2500); };
 
   const handleSave = async () => {
@@ -543,6 +548,10 @@ function ListingsTab() {
       fd.append("description", form.description);
       fd.append("price", form.price);
       fd.append("category", form.category);
+      fd.append("listing_type", form.listing_type);
+      const isInventoryType = form.listing_type === "food" || form.listing_type === "product";
+      fd.append("track_inventory", isInventoryType ? "true" : "false");
+      fd.append("stock_quantity", isInventoryType ? form.stock_quantity.toString() : "0");
       if (form.image) fd.append("image", form.image);
 
       const url = editing ? `${API_URL}/api/services/listings/${editing.id}/` : `${API_URL}/api/services/listings/`;
@@ -558,13 +567,7 @@ function ListingsTab() {
     showToast("Deleted."); loadListings();
   };
 
-  const toggleAvailability = async (listing: any) => {
-    await fetchWithAuth(`${API_URL}/api/services/listings/${listing.id}/`, {
-      method: "PATCH",
-      body: JSON.stringify({ is_available: !listing.is_available }),
-    });
-    loadListings();
-  };
+
 
   if (loading) return <LoadingSpinner />;
 
@@ -614,6 +617,27 @@ function ListingsTab() {
               <span className="text-sm text-gray-400">{form.image ? form.image.name : "Upload image (optional)"}</span>
               <input type="file" accept="image/*" className="hidden" onChange={e => setForm(f => ({ ...f, image: e.target.files?.[0] || null }))} />
             </label>
+            {/* Listing type */}
+            <select value={form.listing_type} onChange={e => setForm(f => ({ ...f, listing_type: e.target.value }))}
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-teal-500 transition">
+              <option value="service">Service (e.g. nails, lashes)</option>
+              <option value="food">Food (stock tracked)</option>
+              <option value="product">Physical Product (stock tracked)</option>
+            </select>
+
+            {/* Inventory tracking — only for food/product */}
+            {(form.listing_type === 'food' || form.listing_type === 'product') && (
+              <div className="flex items-center gap-4 bg-gray-800 rounded-xl px-4 py-3">
+                <div className="flex-1">
+                  <p className="text-white text-sm font-bold">Stock Quantity</p>
+                  <p className="text-gray-500 text-xs">Auto-marks unavailable when stock hits 0</p>
+                </div>
+                <input type="number" min="0" value={form.stock_quantity}
+                  onChange={e => setForm(f => ({ ...f, stock_quantity: parseInt(e.target.value) || 0, track_inventory: true }))}
+                  className="w-20 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm text-center focus:outline-none focus:border-teal-500" />
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button onClick={handleSave} disabled={saving || !form.title || !form.price || !form.category}
                 className="flex-1 py-3 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 rounded-xl font-bold text-white text-sm transition">
@@ -637,15 +661,19 @@ function ListingsTab() {
                   <h3 className="font-bold text-white">{listing.title}</h3>
                   <span className="font-black text-teal-400 text-sm whitespace-nowrap">₦{Number(listing.price).toLocaleString()}</span>
                 </div>
-                <p className="text-gray-500 text-xs mb-4 line-clamp-2">{listing.description}</p>
+                <p className="text-gray-500 text-xs mb-2 line-clamp-2">{listing.description}</p>
+                {listing.track_inventory && (
+                  <p className={`text-xs font-bold mb-2 ${listing.stock_quantity <= 3 ? "text-orange-400" : "text-teal-400"}`}>
+                    📦 Stock: {listing.stock_quantity} remaining
+                  </p>
+                )}
                 <div className="flex items-center justify-between">
-                  <button onClick={() => toggleAvailability(listing)}
-                    className={`flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg transition ${
-                      listing.is_available ? "bg-green-900/30 text-green-400" : "bg-gray-800 text-gray-500"
+                  <span className={`flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg ${
+                      listing.is_available ? "bg-green-900/30 text-green-400" : "bg-yellow-900/30 text-yellow-400"
                     }`}>
                     {listing.is_available ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                    {listing.is_available ? "Active" : "Paused"}
-                  </button>
+                    {listing.is_available ? "Active" : "Pending Approval"}
+                  </span>
                   <div className="flex gap-2">
                     <button onClick={() => openEdit(listing)} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition">
                       <Edit2 className="w-4 h-4 text-gray-400" />

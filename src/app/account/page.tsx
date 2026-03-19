@@ -1,6 +1,6 @@
 "use client";
 
-import { Package, Heart, Settings, HelpCircle, LogOut, ChevronRight, Store, Clock, ArrowRight, Loader, Banknote, LayoutDashboard, Calendar, Gift } from "lucide-react";
+import { Package, Heart, Settings, HelpCircle, LogOut, ChevronRight, Store, Clock, ArrowRight, Loader, Banknote, LayoutDashboard, Calendar, Gift, Bell, X, CheckCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -30,6 +30,9 @@ export default function AccountPage() {
   const [pendingBookings, setPendingBookings] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [pendingOrders, setPendingOrders] = useState(0);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
     if (isHydrated && !isLoggedIn) router.push("/auth");
@@ -71,7 +74,9 @@ export default function AccountPage() {
             const bkData = await bkRes.json();
             const bkList = Array.isArray(bkData) ? bkData : (bkData.results || []);
             if (isVendor) {
-              setPendingBookings(bkList.filter((b: any) => b.status === "pending").length);
+              // Only count bookings made TO this vendor (not bookings they made as a buyer)
+              const vendorBookings = bkList.filter((b: any) => b.vendor_username === freshUser?.username);
+              setPendingBookings(vendorBookings.filter((b: any) => b.status === "pending").length);
             } else {
               setPendingBookings(bkList.filter((b: any) => b.status === "confirmed").length);
             }
@@ -96,6 +101,16 @@ export default function AccountPage() {
           }
         } catch {}
 
+        // Fetch notifications
+        try {
+          const notifRes = await fetchWithAuth(`${API_URL}/api/notifications/`);
+          if (notifRes.ok) {
+            const notifData = await notifRes.json();
+            setNotifications(notifData.notifications || []);
+            setUnreadNotifications(notifData.unread_count || 0);
+          }
+        } catch {}
+
       } catch (err) {
         console.error("Failed to load account data:", err);
       } finally {
@@ -104,11 +119,19 @@ export default function AccountPage() {
     };
 
     fetchData();
-  }, [isHydrated, isLoggedIn, user]);
+  }, [isHydrated, isLoggedIn]);
 
   const handleLogout = () => {
     logout();
     router.push("/auth");
+  };
+
+  const markAllRead = async () => {
+    try {
+      await fetchWithAuth(`${API_URL}/api/notifications/read-all/`, { method: 'POST' });
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setUnreadNotifications(0);
+    } catch {}
   };
 
   const fadeInUp = { initial: { opacity: 0, y: 20 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true }, transition: { duration: 0.5 } };
@@ -139,7 +162,61 @@ export default function AccountPage() {
             <Image src="/images/logo-1.jpg" alt="StudEx Logo" width={140} height={40} className="h-10 w-auto object-contain" priority />
           </Link>
           <h1 className="text-xl font-black bg-gradient-to-r from-purple-600 to-teal-500 bg-clip-text text-transparent">My Account</h1>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <button onClick={() => setShowNotifications(v => !v)}
+                className="relative w-10 h-10 bg-purple-100 dark:bg-purple-900/40 rounded-full flex items-center justify-center hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
+                <Bell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                {unreadNotifications > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-black rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                    {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                  </span>
+                )}
+              </button>
+
+              {/* Notifications Dropdown */}
+              {showNotifications && (
+                <div className="absolute right-0 top-12 w-80 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden">
+                  <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700">
+                    <h3 className="font-bold text-gray-900 dark:text-white">Notifications</h3>
+                    <div className="flex items-center gap-2">
+                      {unreadNotifications > 0 && (
+                        <button onClick={markAllRead} className="text-xs text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1">
+                          <CheckCheck className="w-3 h-3" /> Mark all read
+                        </button>
+                      )}
+                      <button onClick={() => setShowNotifications(false)} className="text-gray-400 hover:text-gray-600">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="p-6 text-center text-gray-500 dark:text-gray-400 text-sm">
+                        No notifications yet
+                      </div>
+                    ) : (
+                      notifications.map((n: any) => (
+                        <div key={n.id} className={`p-4 border-b border-gray-50 dark:border-gray-700 last:border-0 ${!n.is_read ? 'bg-purple-50 dark:bg-purple-900/20' : ''}`}>
+                          <div className="flex items-start gap-3">
+                            <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${!n.is_read ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-sm text-gray-900 dark:text-white">{n.title}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{n.message}</p>
+                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                {new Date(n.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <ThemeToggle />
+          </div>
         </div>
       </motion.div>
 
