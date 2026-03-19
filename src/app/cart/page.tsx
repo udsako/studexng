@@ -14,6 +14,20 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 export default function CartPage() {
   const router = useRouter();
   const { cart, removeFromCart, updateQuantity, clearCart } = useCartStore();
+
+  const handleBack = () => {
+    try {
+      const prev = sessionStorage.getItem("cart-referrer");
+      if (prev) {
+        sessionStorage.removeItem("cart-referrer");
+        router.push(prev);
+      } else {
+        router.push("/categories");
+      }
+    } catch {
+      router.push("/categories");
+    }
+  };
   const [unavailableIds, setUnavailableIds] = useState<Set<number>>(new Set());
   const [stockLimits, setStockLimits] = useState<Record<number, number>>({});
   const [checking, setChecking] = useState(true);
@@ -103,7 +117,7 @@ export default function CartPage() {
     <>
       <div className="sticky top-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl z-50 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center justify-between p-5">
-          <button onClick={() => router.back()}
+          <button onClick={handleBack}
             className="p-3 rounded-full bg-purple-100 dark:bg-purple-900/30 hover:bg-purple-200 transition-all active:scale-95">
             <svg className="w-6 h-6 text-gray-900 dark:text-gray-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />

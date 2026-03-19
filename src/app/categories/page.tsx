@@ -99,7 +99,7 @@ export default function CategoriesPage() {
       <div className="sticky top-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-3xl z-50 border-b border-purple-100 dark:border-gray-800">
         <div className="flex items-center justify-between p-5">
           <button
-            onClick={() => router.back()}
+            onClick={() => router.push("/home")}
             className="p-4 rounded-2xl bg-gradient-to-br from-purple-100 to-teal-100 dark:from-purple-900/30 dark:to-teal-900/30 hover:from-purple-200 hover:to-teal-200 dark:hover:from-purple-900/50 dark:hover:to-teal-900/50 active:scale-95 transition-all shadow-lg"
           >
             <ChevronLeft className="w-7 h-7 text-purple-700 dark:text-purple-400" />
@@ -183,6 +183,7 @@ export default function CategoriesPage() {
                           src={cat.image}
                           alt={cat.title}
                           fill
+                          sizes="(max-width: 768px) 50vw, 25vw"
                           className="object-cover group-hover:scale-125 transition-transform duration-1000"
                           priority={i < 2}
                         />

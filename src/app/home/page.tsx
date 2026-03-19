@@ -240,7 +240,7 @@ export default function HomePage() {
                     <Link href={`/category/${cat.slug}`}>
                       <motion.div {...cardHover} className="bg-white dark:bg-gray-800 p-3 rounded-xl text-center shadow border border-gray-100 dark:border-gray-700 cursor-pointer">
                         <div className="relative w-full h-24 rounded-lg overflow-hidden mb-2">
-                          <Image src={cat.image?.startsWith("http") ? cat.image : `/images/placeholder.jpg`} alt={cat.title} fill className="object-cover" />
+                          <Image src={cat.image?.startsWith("http") ? cat.image : `/images/placeholder.jpg`} alt={cat.title} fill sizes="130px" className="object-cover" />
                         </div>
                         <p className="text-xs font-bold text-gray-900 dark:text-white">{cat.title}</p>
                       </motion.div>
@@ -276,7 +276,7 @@ export default function HomePage() {
                     <Link href={`/category/${listing.category?.slug || listing.category}`}>
                       <motion.div {...cardHover} className="bg-white dark:bg-gray-800 p-3 rounded-xl min-w-[155px] shadow border border-gray-100 dark:border-gray-700 relative cursor-pointer">
                         <div className="relative w-full h-28 rounded-lg overflow-hidden mb-2">
-                          <Image src={listing.image?.startsWith("http") ? listing.image : `/images/placeholder.jpg`} alt={listing.title} fill className="object-cover" />
+                          <Image src={listing.image?.startsWith("http") ? listing.image : `/images/placeholder.jpg`} alt={listing.title} fill sizes="155px" className="object-cover" />
                         </div>
                         <motion.button onClick={(e) => {
                           e.preventDefault(); e.stopPropagation();

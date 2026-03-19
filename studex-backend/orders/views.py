@@ -240,6 +240,23 @@ class BookingViewSet(viewsets.ModelViewSet):
             return Response({'detail': f'Booking is already {booking.status}.'}, status=400)
         booking.status = 'confirmed'
         booking.save()
+        # Notify buyer that their booking was accepted
+        try:
+            from notifications.models import Notification
+            Notification.objects.create(
+                recipient=booking.buyer,
+                notification_type='vendor_approved',
+                title=f'✅ Booking Accepted — {booking.listing.title}',
+                message=(
+                    f'Great news! {booking.listing.vendor.username} '
+                    f'has accepted your booking for "{booking.listing.title}" '
+                    f'on {booking.scheduled_date} at {booking.scheduled_time}. '
+                    f'You can now proceed to pay.'
+                ),
+                action_url='/account/bookings',
+            )
+        except Exception:
+            pass
         return Response({'detail': 'Booking confirmed.', 'status': 'confirmed'})
 
     @action(detail=True, methods=['post'], url_path='cancel')
@@ -254,4 +271,35 @@ class BookingViewSet(viewsets.ModelViewSet):
             return Response({'detail': f'Cannot cancel a {booking.status} booking.'}, status=400)
         booking.status = 'cancelled'
         booking.save()
+        # Notify the other party about cancellation
+        try:
+            from notifications.models import Notification
+            if is_vendor:
+                # Vendor cancelled — notify buyer
+                Notification.objects.create(
+                    recipient=booking.buyer,
+                    notification_type='vendor_revoked',
+                    title=f'❌ Booking Declined — {booking.listing.title}',
+                    message=(
+                        f'Unfortunately, {booking.listing.vendor.business_name or booking.listing.vendor.username} '
+                        f'has declined your booking for "{booking.listing.title}" '
+                        f'on {booking.scheduled_date} at {booking.scheduled_time}. '
+                        f'You can book again or choose another vendor.'
+                    ),
+                    action_url='/account/bookings',
+                )
+            elif is_buyer:
+                # Buyer cancelled — notify vendor
+                Notification.objects.create(
+                    recipient=booking.listing.vendor,
+                    notification_type='vendor_revoked',
+                    title=f'❌ Booking Cancelled by Buyer — {booking.listing.title}',
+                    message=(
+                        f'{booking.buyer.username} has cancelled their booking for '
+                        f'"{booking.listing.title}" on {booking.scheduled_date} at {booking.scheduled_time}.'
+                    ),
+                    action_url='/vendor/dashboard',
+                )
+        except Exception:
+            pass
         return Response({'detail': 'Booking cancelled.', 'status': 'cancelled'})

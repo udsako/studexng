@@ -42,6 +42,8 @@ def register_user(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_user(request):
+    from django.core.cache import cache
+
     serializer = UserLoginSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -52,14 +54,21 @@ def login_user(request):
     try:
         user = User.objects.get(email__iexact=email)
     except User.DoesNotExist:
-        return Response({'error': 'No account found with that email address.'}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({'error': 'Invalid login details, please try again.'}, status=status.HTTP_401_UNAUTHORIZED)
 
     if not user.is_active:
-        return Response({'error': 'This account has been disabled.'}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({
+            'error': 'Sorry, your account has been disabled. Contact support to get your account re-enabled.',
+            'disabled': True,
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    attempt_key = f'login_attempts:{email}'
+    attempts = cache.get(attempt_key, 0)
 
     authenticated_user = authenticate(request, username=user.username, password=password)
 
     if authenticated_user is not None:
+        cache.delete(attempt_key)
         refresh = RefreshToken.for_user(authenticated_user)
         return Response({
             'message': 'Login successful',
@@ -70,7 +79,22 @@ def login_user(request):
             }
         }, status=status.HTTP_200_OK)
 
-    return Response({'error': 'Incorrect password. Please try again.'}, status=status.HTTP_401_UNAUTHORIZED)
+    attempts += 1
+    cache.set(attempt_key, attempts, timeout=60 * 30)
+
+    if attempts >= 5:
+        user.is_active = False
+        user.save()
+        cache.delete(attempt_key)
+        return Response({
+            'error': 'Sorry, your account has been disabled due to too many failed login attempts. Contact support to get your account re-enabled.',
+            'disabled': True,
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    remaining = 5 - attempts
+    return Response({
+        'error': f'Invalid login details, please try again. {remaining} attempt{"s" if remaining != 1 else ""} remaining before account lockout.',
+    }, status=status.HTTP_401_UNAUTHORIZED)
 
 
 @api_view(['GET'])

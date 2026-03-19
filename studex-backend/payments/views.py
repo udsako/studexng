@@ -222,6 +222,23 @@ def verify_payment(request):
             except Exception as e:
                 logger.warning(f"Could not update booking status to paid: {e}")
 
+            # Notify vendor that payment has been received — always fire this
+            # Notify vendor of payment
+            try:
+                from notifications.models import Notification
+                Notification.objects.create(
+                    recipient=listing.vendor,
+                    notification_type='vendor_approved',
+                    title=f'💰 Payment Received — {listing.title}',
+                    message=(
+                        f'{request.user.username} has paid ₦{listing.price:,.0f} for '
+                        f'"{listing.title}". Funds are held in escrow.'
+                    ),
+                    action_url='/vendor/dashboard',
+                )
+            except Exception as ne:
+                logger.warning(f"Payment notification failed: {ne}")
+
         elif order_type == "product" and items:
             for i, item_data in enumerate(items):
                 listing = Listing.objects.get(id=item_data["listing_id"])
@@ -244,6 +261,23 @@ def verify_payment(request):
                     listing.reduce_stock(item_data.get("quantity", 1))
                 except Exception as e:
                     logger.warning(f"reduce_stock failed: {e}")
+                # Notify vendor of payment
+                try:
+                    from notifications.models import Notification
+                    item_amount = listing.price * item_data.get("quantity", 1)
+                    Notification.objects.create(
+                        recipient=listing.vendor,
+                        notification_type='vendor_approved',
+                        title=f'💰 Payment Received — {listing.title}',
+                        message=(
+                            f'{request.user.username} has paid ₦{item_amount:,.0f} for '
+                            f'"{listing.title}" (qty: {item_data.get("quantity", 1)}). '
+                            f'Funds are held in escrow until the order is completed.'
+                        ),
+                        action_url='/vendor/dashboard',
+                    )
+                except Exception as ne:
+                    logger.warning(f"Product payment notification failed: {ne}")
                 if order_id is None:
                     order_id = order.id
 

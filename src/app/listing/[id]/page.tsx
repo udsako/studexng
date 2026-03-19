@@ -39,6 +39,7 @@ interface Listing {
   price: number;
   image: string;
   is_available: boolean;
+  listing_type: string;
   category: { id: number; title: string; slug: string };
   vendor: {
     id: number;
@@ -63,6 +64,7 @@ export default function ListingDetailPage() {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [stockWarning, setStockWarning] = useState("");
 
   // Chat
   const [showChat, setShowChat] = useState(false);
@@ -90,6 +92,12 @@ export default function ListingDetailPage() {
         if (!res.ok) throw new Error("Listing not found");
         const data = await res.json();
         setListing(data);
+        // Warn if low stock
+        if (data.track_inventory && data.stock_quantity <= 3 && data.stock_quantity > 0) {
+          setStockWarning(`Only ${data.stock_quantity} left in stock!`);
+        } else if (data.track_inventory && data.stock_quantity === 0) {
+          setStockWarning("Out of stock");
+        }
         // Fetch reviews for this listing
         try {
           const rv = await fetch(`${API_URL}/api/reviews/reviews/?listing=${id}`);
@@ -107,9 +115,31 @@ export default function ListingDetailPage() {
     if (id) fetchListing();
   }, [id]);
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (!listing) return;
+    // Re-fetch listing to check current availability/stock
+    try {
+      const res = await fetch(`${API_URL}/api/services/listings/${listing.id}/`);
+      if (res.ok) {
+        const fresh = await res.json();
+        if (!fresh.is_available) {
+          showToast("Sorry, this item is no longer available!");
+          setListing(fresh);
+          return;
+        }
+        if (fresh.track_inventory && fresh.stock_quantity === 0) {
+          showToast("Sorry, this item is out of stock!");
+          setListing(fresh);
+          return;
+        }
+        if (fresh.track_inventory && fresh.stock_quantity <= 3) {
+          setStockWarning(`Only ${fresh.stock_quantity} left in stock!`);
+        }
+      }
+    } catch {}
     addToCart({ id: listing.id, title: listing.title, price: listing.price, img: listing.image });
+    // Store this page so cart back button returns here
+    try { sessionStorage.setItem("cart-referrer", window.location.pathname); } catch {}
     showToast("Added to cart!");
   };
 
@@ -119,6 +149,19 @@ export default function ListingDetailPage() {
     if (!bookingTime) { setBookingError("Please pick a time slot."); return; }
     setBookingError("");
     setBookingStep("confirming");
+    // Re-check availability before booking
+    try {
+      const freshRes = await fetch(`${API_URL}/api/services/listings/${listing!.id}/`);
+      if (freshRes.ok) {
+        const fresh = await freshRes.json();
+        if (!fresh.is_available || (fresh.track_inventory && fresh.stock_quantity === 0)) {
+          setBookingError("Sorry, this item is no longer available. Someone may have just booked the last one.");
+          setBookingStep("form");
+          setListing(fresh);
+          return;
+        }
+      }
+    } catch {}
 
     try {
       const res = await fetchWithAuth(`${API_URL}/api/orders/bookings/`, {
@@ -231,7 +274,15 @@ export default function ListingDetailPage() {
 
         <div className="p-4 space-y-4">
 
-          {/* Title + Price */}
+          {/* Stock warning banner */}
+        {stockWarning && (
+          <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-2xl p-3 flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0" />
+            <p className="text-orange-700 dark:text-orange-400 text-sm font-bold">{stockWarning}</p>
+          </div>
+        )}
+
+        {/* Title + Price */}
           <div className="bg-white dark:bg-gray-900 rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-800">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1">
@@ -290,21 +341,28 @@ export default function ListingDetailPage() {
           </div>
 
           {/* Trust badges */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className={`grid gap-2 ${totalReviews > 0 ? "grid-cols-3" : "grid-cols-2"}`}>
             {[
               { icon: Shield, label: "Escrow Protected", color: "text-green-600" },
               { icon: CheckCircle, label: "Vendor Verified", color: "text-blue-600" },
-              { icon: Star, label: "Rated Service", color: "text-amber-500" },
             ].map(({ icon: Icon, label, color }) => (
               <div key={label} className="bg-white dark:bg-gray-900 rounded-xl p-3 text-center shadow-sm border border-gray-100 dark:border-gray-800">
                 <Icon className={`w-5 h-5 ${color} mx-auto mb-1`} />
                 <p className="text-[10px] text-gray-500 font-medium leading-tight">{label}</p>
               </div>
             ))}
+            {totalReviews > 0 && (
+              <div className="bg-white dark:bg-gray-900 rounded-xl p-3 text-center shadow-sm border border-gray-100 dark:border-gray-800">
+                <Star className="w-5 h-5 text-amber-500 fill-amber-500 mx-auto mb-1" />
+                <p className="text-[10px] text-gray-500 font-medium leading-tight">
+                  {rating.toFixed(1)} ({totalReviews})
+                </p>
+              </div>
+            )}
           </div>
 
-          {/* BOOKING SECTION */}
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden">
+          {/* BOOKING SECTION — only for services */}
+          {(listing.listing_type === "service" || !listing.listing_type) && <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden">
             <button
               onClick={() => setShowBooking(v => !v)}
               className="w-full flex items-center justify-between p-4 text-left">
@@ -403,7 +461,7 @@ export default function ListingDetailPage() {
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </div>}
 
         {/* REVIEWS SECTION */}
           {reviews.length > 0 && (
@@ -438,17 +496,22 @@ export default function ListingDetailPage() {
         </div>
       </div>
 
-      {/* Bottom Action Bar */}
+      {/* Bottom Action Bar — service=Book only, food/product=Cart only */}
       {listing.is_available && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 p-4 flex gap-3">
-          <button onClick={handleAddToCart}
-            className="flex-1 py-3.5 border-2 border-purple-600 text-purple-600 dark:text-purple-400 font-black rounded-xl flex items-center justify-center gap-2 text-sm">
-            <ShoppingCart className="w-5 h-5" /> Add to Cart
-          </button>
-          <button onClick={() => { if (!isLoggedIn) { router.push("/auth"); return; } setShowBooking(true); window.scrollTo({ top: 9999, behavior: "smooth" }); }}
-            className="flex-1 py-3.5 bg-gradient-to-r from-purple-600 to-teal-500 text-white font-black rounded-xl flex items-center justify-center gap-2 text-sm shadow-lg">
-            <Calendar className="w-5 h-5" /> Book Now
-          </button>
+          {listing.listing_type === "service" ? (
+            // SERVICE: Book Now only
+            <button onClick={() => { if (!isLoggedIn) { router.push("/auth"); return; } setShowBooking(true); window.scrollTo({ top: 9999, behavior: "smooth" }); }}
+              className="flex-1 py-3.5 bg-gradient-to-r from-purple-600 to-teal-500 text-white font-black rounded-xl flex items-center justify-center gap-2 text-sm shadow-lg">
+              <Calendar className="w-5 h-5" /> Book Now
+            </button>
+          ) : (
+            // FOOD / PHYSICAL PRODUCT: Add to Cart only
+            <button onClick={handleAddToCart}
+              className="flex-1 py-3.5 bg-gradient-to-r from-purple-600 to-teal-500 text-white font-black rounded-xl flex items-center justify-center gap-2 text-sm shadow-lg">
+              <ShoppingCart className="w-5 h-5" /> Add to Cart
+            </button>
+          )}
         </div>
       )}
     </>

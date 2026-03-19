@@ -33,6 +33,7 @@ interface Listing {
   };
   category: { id: number; title: string };
   is_available: boolean;
+  listing_type?: string;
 }
 
 interface ActiveChat {
@@ -82,6 +83,8 @@ export default function CategoryPage() {
 
   const handleAddToCart = (listing: Listing) => {
     addToCart({ id: listing.id, title: listing.title, price: listing.price, img: listing.image });
+    // Store current page so cart back button returns here
+    try { sessionStorage.setItem("cart-referrer", window.location.pathname); } catch {};
     showToast("Added to cart!");
   };
 
@@ -238,11 +241,19 @@ export default function CategoryPage() {
                               className="p-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-purple-50 hover:text-purple-600 transition" title="Message vendor">
                               <MessageCircle className="w-4 h-4" />
                             </motion.button>
-                            {listing.is_available && (
+                            {listing.is_available && listing.listing_type !== "service" && (
                               <motion.button whileTap={{ scale: 0.95 }} onClick={() => handleAddToCart(listing)}
                                 className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-teal-500 text-white font-bold rounded-xl shadow text-sm flex items-center gap-1.5">
                                 <ShoppingCart className="w-4 h-4" /> Add
                               </motion.button>
+                            )}
+                            {listing.is_available && listing.listing_type === "service" && (
+                              <Link href={`/listing/${listing.id}`}>
+                                <motion.button whileTap={{ scale: 0.95 }}
+                                  className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-teal-500 text-white font-bold rounded-xl shadow text-sm flex items-center gap-1.5">
+                                  Book
+                                </motion.button>
+                              </Link>
                             )}
                           </>
                         )}
