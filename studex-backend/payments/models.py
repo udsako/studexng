@@ -4,7 +4,7 @@ from django.conf import settings
 
 
 class SellerBankAccount(models.Model):
-    """Stores seller's bank account for Flutterwave payouts."""
+    """Stores seller's bank account for Paystack split payments."""
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="bank_account"
     )
@@ -12,8 +12,8 @@ class SellerBankAccount(models.Model):
     bank_name = models.CharField(max_length=100)
     account_number = models.CharField(max_length=20)
     account_name = models.CharField(max_length=200)
-    # Flutterwave subaccount ID — kept for reference but no longer used for splits
-    flw_subaccount_id = models.CharField(max_length=100, blank=True, null=True)
+    # Paystack subaccount code — e.g. ACCT_xxxxxxxxxxxxxxx
+    paystack_subaccount_code = models.CharField(max_length=100, blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -26,14 +26,20 @@ class PaymentTransaction(models.Model):
     """
     Logs every payment for audit and refund tracking.
 
-    New pricing model (NO split payments):
-    ─────────────────────────────────────
-    buyer pays:  listing_price + service_charge (₦200) - discount_amount
-    vendor gets: listing_price (their full price, paid by StudEx manually)
-    platform keeps: service_charge - discount_amount (min ₦0)
+    Pricing model:
+    ──────────────────────────────────────────────────────
+    buyer pays   : listing_price + ₦200 service_charge - discount_amount
+    vendor gets  : listing_price  ← credited IMMEDIATELY by Paystack at checkout
+    platform gets: ₦200 service_charge - discount_amount (min ₦0)
 
-    discount_amount: profile-completion 5% discount, capped at service_charge (₦200).
-                     Comes entirely from the platform fee — vendor is unaffected.
+    discount_amount: profile-completion 5% discount, capped at ₦200.
+                     Comes from platform fee only — vendor is never affected.
+
+    Paystack split mechanism:
+      bearer        = "subaccount"   ← vendor pays Paystack fees from their share
+      transaction_charge = listing_price (in kobo) → goes to vendor subaccount
+      remainder     = service_charge → stays in StudEx main account
+    ──────────────────────────────────────────────────────
     """
     STATUS_CHOICES = [
         ("pending", "Pending"),
@@ -56,20 +62,19 @@ class PaymentTransaction(models.Model):
     )
     reference = models.CharField(max_length=200, unique=True)
 
-    # Flutterwave's numeric transaction ID — required for refunds
-    flw_transaction_id = models.BigIntegerField(null=True, blank=True)
+    # Paystack's numeric transaction ID — used for refunds
+    paystack_transaction_id = models.BigIntegerField(null=True, blank=True)
 
-    # Amount buyer actually paid (listing_price + service_charge - discount)
+    # Total amount buyer paid (listing_price + ₦200 - discount)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
 
-    # Vendor's full listing price — what StudEx owes the vendor
+    # Vendor's full listing price — credited to vendor immediately by Paystack
     seller_amount = models.DecimalField(max_digits=12, decimal_places=2)
 
-    # ₦200 flat service charge added to every booking
+    # ₦200 flat service charge
     service_charge = models.DecimalField(max_digits=10, decimal_places=2, default=200)
 
-    # Discount applied from platform fee (5% of listing price, capped at service_charge)
-    # Vendor is NOT affected — discount comes from platform revenue only
+    # 5% profile-completion discount, capped at ₦200, sourced from platform fee only
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     # Net platform revenue = service_charge - discount_amount
@@ -82,7 +87,7 @@ class PaymentTransaction(models.Model):
     buyer_name = models.CharField(max_length=200, blank=True)
     order_id = models.IntegerField(null=True, blank=True)
 
-    flw_response = models.JSONField(null=True, blank=True)
+    paystack_response = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

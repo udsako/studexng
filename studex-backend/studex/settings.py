@@ -220,11 +220,11 @@ SIMPLE_JWT = {
 }
 
 # =======================================
-# FLUTTERWAVE
+# PAYSTACK
 # =======================================
-FLW_SECRET_KEY = config('FLW_SECRET_KEY', default='None')
-FLW_PUBLIC_KEY = config('FLW_PUBLIC_KEY', default='None')
-FLW_WEBHOOK_HASH = config('FLW_WEBHOOK_HASH', default='studex-flw-webhook-secret')
+
+PAYSTACK_SECRET_KEY = config('PAYSTACK_SECRET_KEY', default='None')
+PAYSTACK_PUBLIC_KEY = config('PAYSTACK_PUBLIC_KEY', default='None')
 
 # =======================================
 # CACHE

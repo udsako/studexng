@@ -8,16 +8,14 @@ from .models import SellerBankAccount, PaymentTransaction
 
 @admin.register(SellerBankAccount)
 class SellerBankAccountAdmin(admin.ModelAdmin):
-    list_display = ['user', 'bank_name', 'account_number', 'account_name', 'flw_subaccount_display', 'is_active', 'created_at']
+    list_display = ['user', 'bank_name', 'account_number', 'account_name', 'paystack_subaccount_display', 'is_active', 'created_at']
     search_fields = ['user__username', 'bank_name', 'account_number', 'account_name']
     list_filter = ['is_active', 'bank_name']
     readonly_fields = ['created_at', 'updated_at']
- 
-    def flw_subaccount_display(self, obj):
-        return obj.flw_subaccount_id or '—'
-    flw_subaccount_display.short_description = 'FLW Subaccount ID'
- 
- 
+
+    def paystack_subaccount_display(self, obj):
+        return obj.paystack_subaccount_code or '—'
+    paystack_subaccount_display.short_description = 'Paystack Subaccount Code'
 
 
 @admin.register(PaymentTransaction)
@@ -29,15 +27,12 @@ class PaymentTransactionAdmin(admin.ModelAdmin):
     ]
     list_filter = ['status', 'order_type', 'created_at']
     search_fields = ['reference', 'buyer__username', 'seller__username', 'buyer_email']
-    readonly_fields = ['created_at', 'updated_at', 'flw_response']
+    readonly_fields = ['created_at', 'updated_at', 'paystack_response']
     ordering = ['-created_at']
     date_hierarchy = 'created_at'
     list_per_page = 50
 
     def amount_display(self, obj):
-        # ✅ Format the number to a string FIRST, then pass to format_html
-        # Passing float directly with {:,.2f} breaks in Python 3.14 because
-        # format_html wraps args in SafeString which only supports string format specs
         amount = f"₦{float(obj.amount):,.2f}"
         return format_html('<strong>{}</strong>', amount)
     amount_display.short_description = 'Total'

@@ -1,4 +1,3 @@
-// src/app/account/bookings/page.tsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -12,7 +11,8 @@ import {
 import { useAuth, fetchWithAuth } from "@/lib/authStore";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-const SERVICE_FEE = 200; // StudEx flat service fee added to buyer total
+const PAYSTACK_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY!;
+const SERVICE_FEE = 200;
 
 interface Booking {
   id: number;
@@ -67,32 +67,32 @@ const STATUS = {
 export default function BuyerBookingsPage() {
   const router = useRouter();
   const { user, isLoggedIn, isHydrated } = useAuth();
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [payingId, setPayingId] = useState<number | null>(null);
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-  const [filter, setFilter] = useState<"all" | "pending" | "confirmed" | "cancelled" | "paid">("all");
-  const [useCredits, setUseCredits] = useState(false);
+  const [bookings, setBookings]             = useState<Booking[]>([]);
+  const [loading, setLoading]               = useState(true);
+  const [error, setError]                   = useState("");
+  const [payingId, setPayingId]             = useState<number | null>(null);
+  const [toast, setToast]                   = useState<{ msg: string; ok: boolean } | null>(null);
+  const [filter, setFilter]                 = useState<"all" | "pending" | "confirmed" | "cancelled" | "paid">("all");
+  const [useCredits, setUseCredits]         = useState(false);
   const [loyaltyBalance, setLoyaltyBalance] = useState(0);
-  const [flwReady, setFlwReady] = useState(false);
-  const [verifying, setVerifying] = useState(false);
+  const [paystackReady, setPaystackReady]   = useState(false);
+  const [verifying, setVerifying]           = useState(false);
 
-  const referenceRef = useRef(`STUDEX-BKG-${Date.now()}`);
+  const referenceRef     = useRef(`STUDEX-BKG-${Date.now()}`);
   const activeBookingRef = useRef<Booking | null>(null);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollIntervalRef  = useRef<NodeJS.Timeout | null>(null);
 
-  // Load Flutterwave script on mount
+  // ── Load Paystack inline script ──────────────────────────────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if ((window as any).FlutterwaveCheckout) { setFlwReady(true); return; }
-    const existing = document.getElementById("flw-script");
-    if (existing) { existing.addEventListener("load", () => setFlwReady(true)); return; }
-    const script = document.createElement("script");
-    script.id = "flw-script";
-    script.src = "https://checkout.flutterwave.com/v3.js";
-    script.async = true;
-    script.onload = () => setFlwReady(true);
+    if ((window as any).PaystackPop) { setPaystackReady(true); return; }
+    const existing = document.getElementById("paystack-script");
+    if (existing) { existing.addEventListener("load", () => setPaystackReady(true)); return; }
+    const script  = document.createElement("script");
+    script.id     = "paystack-script";
+    script.src    = "https://js.paystack.co/v1/inline.js";
+    script.async  = true;
+    script.onload = () => setPaystackReady(true);
     document.head.appendChild(script);
   }, []);
 
@@ -115,12 +115,11 @@ export default function BuyerBookingsPage() {
 
   useEffect(() => {
     if (payingId) {
-      referenceRef.current = `STUDEX-BKG-${Date.now()}-${payingId}`;
+      referenceRef.current     = `STUDEX-BKG-${Date.now()}-${payingId}`;
       activeBookingRef.current = bookings.find(b => b.id === payingId) || null;
     }
   }, [payingId, bookings]);
 
-  // Cleanup polling on unmount
   useEffect(() => {
     return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
   }, []);
@@ -129,7 +128,7 @@ export default function BuyerBookingsPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/orders/bookings/`);
+      const res  = await fetchWithAuth(`${API_URL}/api/orders/bookings/`);
       if (!res.ok) throw new Error("Failed to load bookings");
       const data = await res.json();
       const all: Booking[] = Array.isArray(data) ? data : (data.results || []);
@@ -149,28 +148,30 @@ export default function BuyerBookingsPage() {
   const cancelBooking = async (id: number) => {
     if (!confirm("Are you sure you want to cancel this booking?")) return;
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/orders/bookings/${id}/cancel/`, { method: "POST" });
+      const res = await fetchWithAuth(
+        `${API_URL}/api/orders/bookings/${id}/cancel/`,
+        { method: "POST" },
+      );
       if (res.ok) { showToast("Booking cancelled."); loadBookings(); }
       else showToast("Could not cancel. Try again.", false);
     } catch { showToast("Error cancelling booking.", false); }
   };
 
-  /**
-   * Poll the backend every 2 seconds for up to 30 seconds.
-   * The webhook creates the order server-side — we just wait for it.
-   */
+  // ── Poll backend every 2s for up to 30s after payment ───────────────────
   const startPolling = (txRef: string) => {
     setVerifying(true);
     showToast("Verifying payment...", true);
     let attempts = 0;
-    const maxAttempts = 15; // 15 × 2s = 30s
+    const maxAttempts = 15;
 
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
 
     pollIntervalRef.current = setInterval(async () => {
       attempts++;
       try {
-        const res = await fetchWithAuth(`${API_URL}/api/payments/check-status/?tx_ref=${txRef}`);
+        const res = await fetchWithAuth(
+          `${API_URL}/api/payments/check-status/?tx_ref=${txRef}`,
+        );
         if (res.ok) {
           const data = await res.json();
           if (data.status === "paid" && data.order_id) {
@@ -182,20 +183,16 @@ export default function BuyerBookingsPage() {
             return;
           }
         }
-      } catch { /* continue polling */ }
+      } catch { /* continue */ }
 
       if (attempts >= maxAttempts) {
         clearInterval(pollIntervalRef.current!);
         setVerifying(false);
-        // Try direct verify as fallback
         await fallbackVerify(txRef);
       }
     }, 2000);
   };
 
-  /**
-   * Fallback: call verify endpoint directly if polling times out.
-   */
   const fallbackVerify = async (txRef: string) => {
     const booking = activeBookingRef.current;
     if (!booking) {
@@ -203,14 +200,13 @@ export default function BuyerBookingsPage() {
       await loadBookings();
       return;
     }
-
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/payments/verify/`, {
+      const res  = await fetchWithAuth(`${API_URL}/api/payments/verify/`, {
         method: "POST",
         body: JSON.stringify({
-          reference: txRef,
-          listing_id: booking.listing,
-          order_type: "service",
+          reference:   txRef,
+          listing_id:  booking.listing,
+          order_type:  "service",
           use_credits: useCredits,
         }),
       });
@@ -229,73 +225,73 @@ export default function BuyerBookingsPage() {
     }
   };
 
-  const activeBooking = bookings.find(b => b.id === payingId);
-  const listingPrice = activeBooking ? parseFloat(activeBooking.listing_price) : 0;
-  const creditsToApply = useCredits ? Math.min(loyaltyBalance, listingPrice) : 0;
+  // ── Derived amounts ──────────────────────────────────────────────────────
+  const activeBooking      = bookings.find(b => b.id === payingId);
+  const listingPrice       = activeBooking ? parseFloat(activeBooking.listing_price) : 0;
+  const creditsToApply     = useCredits ? Math.min(loyaltyBalance, listingPrice) : 0;
   const amountAfterCredits = Math.max(listingPrice - creditsToApply, 0);
-  const totalWithFee = amountAfterCredits + SERVICE_FEE; // buyer pays listing price + ₦200 fee
+  const totalWithFee       = amountAfterCredits + SERVICE_FEE;  // Naira
+  const totalInKobo        = totalWithFee * 100;                 // Paystack uses kobo
 
-  const proceedToFlutterwave = () => {
+  // ── Open Paystack popup ──────────────────────────────────────────────────
+  const proceedToPaystack = () => {
     if (!activeBooking) return;
 
-    const FlutterwaveCheckout = (window as any).FlutterwaveCheckout;
-    if (typeof FlutterwaveCheckout !== "function") {
-      const script = document.createElement("script");
-      script.src = "https://checkout.flutterwave.com/v3.js";
-      script.onload = () => { setFlwReady(true); showToast("Ready! Tap Pay again.", true); };
-      document.head.appendChild(script);
-      showToast("Loading payment... tap Pay again in 3 seconds.", false);
+    const PaystackPop = (window as any).PaystackPop;
+    if (typeof PaystackPop === "undefined") {
+      showToast("Payment system still loading. Please try again.", false);
       return;
     }
 
-    const subaccountId = (activeBookingRef.current || activeBooking).vendor_subaccount_code?.trim();
-    const txRef = referenceRef.current;
+    const txRef          = referenceRef.current;
+    const subaccountCode = (activeBookingRef.current || activeBooking)
+      .vendor_subaccount_code?.trim();
 
-    setPayingId(null); // Close modal before opening FLW
+    setPayingId(null); // close modal before popup opens
 
-    FlutterwaveCheckout({
-      public_key: (process.env.NEXT_PUBLIC_FLW_PUBLIC_KEY || "").trim(),
-      tx_ref: txRef,
-      amount: totalWithFee, // vendor price + ₦200 service fee
+    const handler = PaystackPop.setup({
+      key:      PAYSTACK_PUBLIC_KEY,
+      email:    (user?.email || "").trim(),
+      amount:   totalInKobo,   // full amount in kobo (listing price + ₦200 fee)
       currency: "NGN",
-      payment_options: "card,banktransfer,ussd",
-      ...(subaccountId && subaccountId.startsWith("RS_") ? { subaccounts: [{ id: subaccountId }] } : {}),
-      customer: {
-        email: (user?.email || "").trim(),
-        name: (user?.username || "").trim(),
-        phone_number: "",
+      ref:      txRef,
+      // ── Split config ────────────────────────────────────────────────────
+      // bearer="account"          → StudEx (main account) absorbs Paystack fees
+      // transaction_charge=20000  → ₦200 in kobo stays in StudEx account
+      // remainder                 → vendor receives their full listing price
+      // ────────────────────────────────────────────────────────────────────
+      ...(subaccountCode ? {
+        subaccount:         subaccountCode,
+        transaction_charge: SERVICE_FEE * 100,  // 20000 kobo = ₦200 → StudEx keeps this
+        bearer:             "account",           // StudEx absorbs Paystack processing fees
+      } : {}),
+      metadata: {
+        custom_fields: [],
+        listing_id:    (activeBookingRef.current || activeBooking).listing,
+        type:          "booking_payment",
+        cancel_action: `${window.location.origin}/account/bookings`,
       },
-      meta: {
-        listing_id: (activeBookingRef.current || activeBooking).listing,
-        type: "booking_payment",
+      callback: (response: { reference: string }) => {
+        startPolling(response.reference);
       },
-      customizations: {
-        title: "StudEx",
-        description: "Service Booking",
-      },
-      callback: (response: any) => {
-        // Callback fires when payment is done — start polling regardless of response details
-        if (response.status === "successful" || response.status === "completed") {
-          startPolling(response.tx_ref || txRef);
-        }
-      },
-      onclose: () => {
-        // User closed checkout — start polling anyway in case payment went through
-        // Poll for a few seconds to catch payments that completed just before close
+      onClose: () => {
+        // Poll briefly in case payment completed just before close
         startPolling(txRef);
       },
     });
+
+    handler.openIframe();
   };
 
   const handlePay = (bookingId: number) => setPayingId(bookingId);
 
   const filtered = filter === "all" ? bookings : bookings.filter(b => b.status === filter);
   const counts = {
-    all: bookings.length,
-    pending: bookings.filter(b => b.status === "pending").length,
+    all:       bookings.length,
+    pending:   bookings.filter(b => b.status === "pending").length,
     confirmed: bookings.filter(b => b.status === "confirmed").length,
     cancelled: bookings.filter(b => b.status === "cancelled").length,
-    paid: bookings.filter(b => b.status === "paid").length,
+    paid:      bookings.filter(b => b.status === "paid").length,
   };
 
   if (!isHydrated || loading) {
@@ -311,8 +307,11 @@ export default function BuyerBookingsPage() {
       {/* TOAST */}
       <AnimatePresence>
         {toast && (
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-            className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 rounded-full font-bold text-sm shadow-xl whitespace-nowrap ${toast.ok ? "bg-teal-500 text-white" : "bg-red-500 text-white"}`}>
+          <motion.div
+            initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+            className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 rounded-full font-bold text-sm shadow-xl whitespace-nowrap ${
+              toast.ok ? "bg-teal-500 text-white" : "bg-red-500 text-white"
+            }`}>
             {toast.msg}
           </motion.div>
         )}
@@ -321,12 +320,15 @@ export default function BuyerBookingsPage() {
       {/* VERIFYING OVERLAY */}
       <AnimatePresence>
         {verifying && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/40 z-[9998] flex items-center justify-center">
             <div className="bg-white dark:bg-gray-900 rounded-3xl p-8 shadow-2xl text-center max-w-xs mx-4">
               <Loader className="w-12 h-12 text-purple-600 animate-spin mx-auto mb-4" />
               <p className="font-black text-gray-900 dark:text-white text-lg">Confirming Payment</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Please wait while we verify your payment...</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                Please wait while we verify your payment...
+              </p>
             </div>
           </motion.div>
         )}
@@ -335,54 +337,95 @@ export default function BuyerBookingsPage() {
       {/* PAYMENT MODAL */}
       <AnimatePresence>
         {payingId && activeBooking && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }} transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
               className="bg-white dark:bg-gray-900 rounded-3xl p-6 w-full max-w-md shadow-2xl overflow-y-auto"
               style={{ maxHeight: "calc(100dvh - 3rem)" }}>
-              <h2 className="text-xl font-black text-gray-900 dark:text-white mb-1">Confirm Payment</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">You're about to pay for this confirmed booking.</p>
 
+              <h2 className="text-xl font-black text-gray-900 dark:text-white mb-1">
+                Confirm Payment
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                You're about to pay for this confirmed booking.
+              </p>
+
+              {/* Order summary */}
               <div className="bg-gray-50 dark:bg-gray-800 rounded-2xl p-4 mb-5 space-y-2">
                 <div className="flex justify-between text-sm gap-4">
                   <span className="text-gray-500 flex-shrink-0">Service</span>
-                  <span className="font-bold text-gray-900 dark:text-white text-right">{activeBooking.listing_title}</span>
+                  <span className="font-bold text-gray-900 dark:text-white text-right">
+                    {activeBooking.listing_title}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Vendor</span>
-                  <span className="font-bold text-gray-900 dark:text-white">{activeBooking.vendor_name}</span>
+                  <span className="font-bold text-gray-900 dark:text-white">
+                    {activeBooking.vendor_name}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Date</span>
-                  <span className="font-bold text-gray-900 dark:text-white">{activeBooking.scheduled_date}</span>
+                  <span className="font-bold text-gray-900 dark:text-white">
+                    {activeBooking.scheduled_date}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Time</span>
-                  <span className="font-bold text-gray-900 dark:text-white">{activeBooking.scheduled_time}</span>
+                  <span className="font-bold text-gray-900 dark:text-white">
+                    {activeBooking.scheduled_time}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Vendor Price</span>
+                  <span className="font-bold text-gray-900 dark:text-white">
+                    ₦{Number(activeBooking.listing_price).toLocaleString()}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Service Fee</span>
-                  <span className="font-medium text-purple-600">₦{SERVICE_FEE.toLocaleString()}</span>
+                  <span className="font-medium text-purple-600">
+                    ₦{SERVICE_FEE.toLocaleString()}
+                  </span>
                 </div>
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-2 flex justify-between">
                   <span className="font-black text-gray-900 dark:text-white">Total</span>
-                  <span className="font-black text-teal-600 text-lg">₦{(Number(activeBooking.listing_price) + SERVICE_FEE).toLocaleString()}</span>
+                  <span className="font-black text-teal-600 text-lg">
+                    ₦{(Number(activeBooking.listing_price) + SERVICE_FEE).toLocaleString()}
+                  </span>
                 </div>
               </div>
 
+              {/* Loyalty credits toggle */}
               {loyaltyBalance > 0 && (
-                <button onClick={() => setUseCredits(v => !v)}
-                  className={`w-full flex items-center justify-between rounded-2xl p-4 mb-4 border-2 transition ${useCredits ? "bg-amber-50 dark:bg-amber-900/20 border-amber-400" : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"}`}>
+                <button
+                  onClick={() => setUseCredits(v => !v)}
+                  className={`w-full flex items-center justify-between rounded-2xl p-4 mb-4 border-2 transition ${
+                    useCredits
+                      ? "bg-amber-50 dark:bg-amber-900/20 border-amber-400"
+                      : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+                  }`}>
                   <div className="flex items-center gap-3">
                     <span className="text-2xl">🎁</span>
                     <div className="text-left">
-                      <p className="font-black text-sm text-gray-900 dark:text-white">Use Loyalty Credits</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">You have ₦{loyaltyBalance.toLocaleString()} available</p>
+                      <p className="font-black text-sm text-gray-900 dark:text-white">
+                        Use Loyalty Credits
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        You have ₦{loyaltyBalance.toLocaleString()} available
+                      </p>
                     </div>
                   </div>
-                  <div className={`w-12 h-6 rounded-full transition-colors flex items-center px-1 ${useCredits ? "bg-amber-400" : "bg-gray-300 dark:bg-gray-600"}`}>
-                    <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${useCredits ? "translate-x-6" : "translate-x-0"}`} />
+                  <div className={`w-12 h-6 rounded-full transition-colors flex items-center px-1 ${
+                    useCredits ? "bg-amber-400" : "bg-gray-300 dark:bg-gray-600"
+                  }`}>
+                    <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      useCredits ? "translate-x-6" : "translate-x-0"
+                    }`} />
                   </div>
                 </button>
               )}
@@ -391,15 +434,21 @@ export default function BuyerBookingsPage() {
                 <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-3 mb-4">
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-gray-500">Original</span>
-                    <span className="text-gray-500 line-through">₦{listingPrice.toLocaleString()}</span>
+                    <span className="text-gray-500 line-through">
+                      ₦{listingPrice.toLocaleString()}
+                    </span>
                   </div>
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-amber-600 font-bold">Credits applied</span>
-                    <span className="text-amber-600 font-bold">- ₦{creditsToApply.toLocaleString()}</span>
+                    <span className="text-amber-600 font-bold">
+                      - ₦{creditsToApply.toLocaleString()}
+                    </span>
                   </div>
                   <div className="flex justify-between font-black border-t border-amber-200 dark:border-amber-700 pt-1">
                     <span className="text-gray-900 dark:text-white">You pay</span>
-                    <span className="text-teal-600 text-lg">₦{amountAfterCredits.toLocaleString()}</span>
+                    <span className="text-teal-600 text-lg">
+                      ₦{amountAfterCredits.toLocaleString()}
+                    </span>
                   </div>
                 </div>
               )}
@@ -407,19 +456,23 @@ export default function BuyerBookingsPage() {
               <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 mb-5">
                 <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0" />
                 <p className="text-xs text-blue-700 dark:text-blue-300">
-                  Payment is processed securely by Flutterwave. The vendor receives their share automatically.
+                  Payment is processed securely by Paystack. The vendor receives their full
+                  listing price immediately. StudEx retains the ₦{SERVICE_FEE} service fee only.
                 </p>
               </div>
 
               <div className="flex gap-3">
-                <button onClick={() => setPayingId(null)}
+                <button
+                  onClick={() => setPayingId(null)}
                   className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 rounded-2xl font-bold text-gray-600 dark:text-gray-300 text-sm">
                   Cancel
                 </button>
-                <button onClick={proceedToFlutterwave}
-                  className="flex-1 py-3 bg-gradient-to-r from-teal-500 to-emerald-500 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-transform">
+                <button
+                  onClick={proceedToPaystack}
+                  disabled={!paystackReady}
+                  className="flex-1 py-3 bg-gradient-to-r from-teal-500 to-emerald-500 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-transform disabled:opacity-60">
                   <CreditCard className="w-4 h-4" />
-                  {flwReady ? `Pay ₦${totalWithFee.toLocaleString()}` : "Loading..."}
+                  {paystackReady ? `Pay ₦${totalWithFee.toLocaleString()}` : "Loading..."}
                 </button>
               </div>
             </motion.div>
@@ -430,22 +483,39 @@ export default function BuyerBookingsPage() {
       {/* HEADER */}
       <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-40 px-4 py-4">
         <div className="flex items-center justify-between max-w-2xl mx-auto">
-          <button onClick={() => router.back()} className="text-purple-600 p-2 rounded-full hover:bg-purple-50 dark:hover:bg-purple-900/20 transition">
+          <button
+            onClick={() => router.back()}
+            className="text-purple-600 p-2 rounded-full hover:bg-purple-50 dark:hover:bg-purple-900/20 transition">
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="text-xl font-black bg-gradient-to-r from-purple-600 to-teal-500 bg-clip-text text-transparent">My Bookings</h1>
-          <button onClick={loadBookings} className="text-gray-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+          <h1 className="text-xl font-black bg-gradient-to-r from-purple-600 to-teal-500 bg-clip-text text-transparent">
+            My Bookings
+          </h1>
+          <button
+            onClick={loadBookings}
+            className="text-gray-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition">
             <RefreshCw className="w-5 h-5" />
           </button>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto p-4 pb-44 space-y-4 bg-[#FFF8F0] dark:bg-gray-950 min-h-screen">
+
+        {/* Filter tabs */}
         <div className="flex gap-2 overflow-x-auto pb-1">
           {(["all", "pending", "confirmed", "cancelled"] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)}
-              className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-bold capitalize transition ${filter === f ? "bg-purple-600 text-white shadow-md" : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700"}`}>
-              {f}{counts[f] > 0 && <span className={`ml-1 text-xs ${filter === f ? "opacity-80" : "text-purple-500"}`}>({counts[f]})</span>}
+              className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-bold capitalize transition ${
+                filter === f
+                  ? "bg-purple-600 text-white shadow-md"
+                  : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700"
+              }`}>
+              {f}
+              {counts[f] > 0 && (
+                <span className={`ml-1 text-xs ${filter === f ? "opacity-80" : "text-purple-500"}`}>
+                  ({counts[f]})
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -460,27 +530,38 @@ export default function BuyerBookingsPage() {
         {filtered.length === 0 && !error && (
           <div className="text-center py-20">
             <Calendar className="w-14 h-14 text-gray-300 dark:text-gray-700 mx-auto mb-4" />
-            <p className="font-black text-gray-500 dark:text-gray-400 text-lg">No {filter === "all" ? "" : filter} bookings</p>
+            <p className="font-black text-gray-500 dark:text-gray-400 text-lg">
+              No {filter === "all" ? "" : filter} bookings
+            </p>
             <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-              {filter === "all" ? "Book a service from any vendor listing to get started." : `You have no ${filter} bookings right now.`}
+              {filter === "all"
+                ? "Book a service from any vendor listing to get started."
+                : `You have no ${filter} bookings right now.`}
             </p>
           </div>
         )}
 
         <div className="space-y-4">
           {filtered.map(booking => {
-            const cfg = STATUS[booking.status as keyof typeof STATUS];
-            const Icon = cfg.icon;
+            const cfg         = STATUS[booking.status as keyof typeof STATUS];
+            const Icon        = cfg.icon;
             const isConfirmed = booking.status === "confirmed";
-            const isPending = booking.status === "pending";
+            const isPending   = booking.status === "pending";
 
             return (
-              <motion.div key={booking.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+              <motion.div
+                key={booking.id}
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 className={`rounded-2xl border p-4 ${cfg.bg}`}>
+
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div className="flex-1 min-w-0">
-                    <p className="font-black text-gray-900 dark:text-white text-base leading-tight">{booking.listing_title}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">by <span className="font-semibold">{booking.vendor_name}</span></p>
+                    <p className="font-black text-gray-900 dark:text-white text-base leading-tight">
+                      {booking.listing_title}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                      by <span className="font-semibold">{booking.vendor_name}</span>
+                    </p>
                   </div>
                   <span className={`flex-shrink-0 flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${cfg.badge}`}>
                     <Icon className="w-3.5 h-3.5" />{cfg.label}
@@ -490,15 +571,21 @@ export default function BuyerBookingsPage() {
                 <div className="grid grid-cols-3 gap-2 mb-3">
                   <div className="bg-white/60 dark:bg-gray-800/60 rounded-xl p-2.5 text-center">
                     <Calendar className="w-4 h-4 mx-auto mb-1 text-gray-400" />
-                    <p className="text-xs font-bold text-gray-700 dark:text-gray-300">{booking.scheduled_date}</p>
+                    <p className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                      {booking.scheduled_date}
+                    </p>
                   </div>
                   <div className="bg-white/60 dark:bg-gray-800/60 rounded-xl p-2.5 text-center">
                     <Clock className="w-4 h-4 mx-auto mb-1 text-gray-400" />
-                    <p className="text-xs font-bold text-gray-700 dark:text-gray-300">{booking.scheduled_time}</p>
+                    <p className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                      {booking.scheduled_time}
+                    </p>
                   </div>
                   <div className="bg-white/60 dark:bg-gray-800/60 rounded-xl p-2.5 text-center">
                     <p className="text-xs text-gray-400 mb-1">Price</p>
-                    <p className="text-xs font-black text-teal-600">₦{Number(booking.listing_price).toLocaleString()}</p>
+                    <p className="text-xs font-black text-teal-600">
+                      ₦{Number(booking.listing_price).toLocaleString()}
+                    </p>
                   </div>
                 </div>
 
@@ -506,25 +593,31 @@ export default function BuyerBookingsPage() {
 
                 {booking.note && (
                   <div className="bg-white/50 dark:bg-gray-800/40 rounded-xl p-2.5 mb-3">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 italic">Note: {booking.note}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+                      Note: {booking.note}
+                    </p>
                   </div>
                 )}
 
                 <div className="flex gap-2">
                   {isConfirmed && (
-                    <button onClick={() => handlePay(booking.id)}
+                    <button
+                      onClick={() => handlePay(booking.id)}
                       className="flex-1 py-3 bg-gradient-to-r from-teal-500 to-emerald-500 text-white rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-md active:scale-95 transition-transform">
-                      <CreditCard className="w-4 h-4" /> Pay ₦{(Number(booking.listing_price) + SERVICE_FEE).toLocaleString()}
+                      <CreditCard className="w-4 h-4" />
+                      Pay ₦{(Number(booking.listing_price) + SERVICE_FEE).toLocaleString()}
                     </button>
                   )}
                   {isPending && (
-                    <button onClick={() => cancelBooking(booking.id)}
+                    <button
+                      onClick={() => cancelBooking(booking.id)}
                       className="flex-shrink-0 py-3 px-4 bg-white dark:bg-gray-800 border border-red-200 dark:border-red-800 text-red-500 rounded-xl font-bold text-sm flex items-center gap-1.5">
                       <Ban className="w-4 h-4" /> Cancel
                     </button>
                   )}
                   {booking.status === "cancelled" && (
-                    <button onClick={() => router.push("/home")}
+                    <button
+                      onClick={() => router.push("/home")}
                       className="flex-1 py-3 bg-white dark:bg-gray-800 border border-purple-200 dark:border-purple-800 text-purple-600 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
                       Find another vendor <ChevronRight className="w-4 h-4" />
                     </button>

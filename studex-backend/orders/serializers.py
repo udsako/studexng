@@ -185,13 +185,14 @@ class BookingSerializer(serializers.ModelSerializer):
         return getattr(vendor, 'business_name', None) or vendor.username
 
     def get_vendor_subaccount_code(self, obj):
-        """Return vendor's Flutterwave subaccount ID so frontend can pass it at payment init."""
+        """Return vendor's Paystack subaccount code so frontend can pass it at payment init."""
         try:
             from payments.models import SellerBankAccount
             bank = SellerBankAccount.objects.filter(user=obj.listing.vendor).first()
-            return bank.flw_subaccount_id if bank else None
+            return bank.paystack_subaccount_code if bank else None
         except Exception:
             return None
+
 
     def validate_scheduled_date(self, value):
         from datetime import date
